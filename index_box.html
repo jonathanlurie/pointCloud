@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - orbit controls</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				color: #000;
+				font-family:Monospace;
+				font-size:13px;
+				text-align:center;
+				font-weight: bold;
+
+				background-color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+
+			#info {
+				color:#000;
+				position: absolute;
+				top: 0px; width: 100%;
+				padding: 5px;
+
+			}
+
+			a {
+				color: green;
+        text-decoration: none;
+			}
+		</style>
+	</head>
+
+	<body>
+		<div id="container"></div>
+		<div id="info">
+      <span>MCIN Hackathon - November 4, 2016 - <a href="https://github.com/jonathanlurie/hackathon2016_MCIN" target="_blank">see on Github</a></span>
+      <input type="file" id="myFile" style="display: none;">
+		</div>
+
+    <!-- THREE stuff -->
+		<script src="js/three.js"></script>
+		<script src="js/OrbitControls.js"></script>
+    <script src="js/Lut.js"></script>
+		<script src="js/Detector.js"></script>
+		<script src="js/stats.min.js"></script>
+    <script src="js/dat.gui.js"></script>
+
+
+    <!-- MINC related things -->
+    <script src="js/pako.js"></script>
+    <script src="js/hdf5_tools.js"></script>
+    <script src="js/hdf5_reader.js"></script>
+    <script src="js/minc_reader.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var stats;
+
+			var camera, controls, scene, renderer;
+
+      var mincData = null;
+
+      // will contain all the shapes
+      var mainContainer;
+
+      // will contain the MRI brain dots
+      var brainContainer;
+
+      var pointCloud = null;
+
+      var boxForClipping = null;
+
+      var clipPlanes = null;
+
+      // variable managed by DAT.GUI
+      var guiVar = null;
+      var gui = new dat.GUI();
+
+			init();
+			animate();
+
+
+      // initialize the UI
+      function initDatGui(){
+
+        guiVar = {
+          posx: 0,
+          posy: 0,
+          posz: 0,
+          rotx: 0,
+          roty: 0,
+          rotz: 0,
+
+          clipInvert: true,
+          clipPosx: 0,
+          clipPosy: 0,
+          clipPosz: 0,
+          clipRotx: 0,
+          clipRoty: 0,
+          clipRotz: 0,
+
+          zoom: 1,
+          near: 1,
+
+          debug: function(){
+              console.log("DEBUG");
+          },
+
+          // just shortcut to load a minc file
+          loadFile: function(){
+            document.getElementById('myFile').click();
+          },
+
+          resetClippingBox: function(){
+            guiVar.clipPosx = 0;
+            guiVar.clipPosy = 0;
+            guiVar.clipPosz = 0;
+            guiVar.clipRotx = 0;
+            guiVar.clipRoty = 0;
+            guiVar.clipRotz = 0;
+
+            boxForClipping.position.set(0, 0, 0);
+            boxForClipping.rotation.set(0, 0, 0);
+
+            updateClippingPlaneFromClippingBox();
+          }
+        };
+
+        var shapeTransformGroup = gui.addFolder('Shape');
+        var cameraTransformGroup = gui.addFolder('Camera');
+        var clippingBoxTransformGroup = gui.addFolder('Clipping Box');
+
+        gui.add(guiVar, "loadFile");
+
+        // for the shape
+        shapeTransformGroup.add(guiVar, 'posx', -5, 5).name("position x").step(0.1);
+        shapeTransformGroup.add(guiVar, 'posy', -5, 5).name("position y").step(0.1);
+        shapeTransformGroup.add(guiVar, 'posz', -5, 5).name("position z").step(0.1);
+        shapeTransformGroup.add(guiVar, 'rotx', -Math.PI/2, Math.PI/2).name("rotation x").step(0.01);
+        shapeTransformGroup.add(guiVar, 'roty', -Math.PI/2, Math.PI/2).name("rotation y").step(0.01);
+        shapeTransformGroup.add(guiVar, 'rotz', -Math.PI/2, Math.PI/2).name("rotation z").step(0.01);
+
+        // for the camera
+        cameraTransformGroup.add(guiVar, 'zoom', 0.1, 5).name("zoom").step(0.01);
+        cameraTransformGroup.add(guiVar, 'near', 1, 1000).name("near").step(1);
+
+        // for the clpping box
+        clippingBoxTransformGroup.add(guiVar, "resetClippingBox")
+          .name("Reset");
+
+        clippingBoxTransformGroup.add(guiVar, "clipInvert")
+          .name("Invert clipping")
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            //revertPlanes();
+
+
+
+            //console.log(pointCloud);
+            pointCloud.material.clipIntersection = value;
+            //updateClippingPlaneFromClippingBox();
+          })
+
+        clippingBoxTransformGroup.add(guiVar, 'clipPosx', -300, 300)
+          .name("position x")
+          .step(0.01).listen()
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            boxForClipping.position.x = value;
+
+            updateClippingPlaneFromClippingBox();
+          });
+
+
+        clippingBoxTransformGroup.add(guiVar, 'clipPosy', -300, 300)
+          .name("position y")
+          .step(0.01)
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            boxForClipping.position.y = value;
+
+            updateClippingPlaneFromClippingBox();
+          });
+
+        clippingBoxTransformGroup.add(guiVar, 'clipPosz', -300, 300)
+          .name("position z")
+          .step(0.01)
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            boxForClipping.position.z = value;
+
+            updateClippingPlaneFromClippingBox();
+          });
+
+        clippingBoxTransformGroup.add(guiVar, 'clipRotx', -Math.PI/2, Math.PI/2)
+          .name("rotation x")
+          .step(0.01)
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            boxForClipping.rotation.x = value;
+
+            updateClippingPlaneFromClippingBox();
+          });
+
+        clippingBoxTransformGroup.add(guiVar, 'clipRoty', -Math.PI/2, Math.PI/2)
+          .name("rotation y")
+          .step(0.01)
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            boxForClipping.rotation.y = value;
+
+            updateClippingPlaneFromClippingBox();
+          });
+
+        clippingBoxTransformGroup.add(guiVar, 'clipRotz', -Math.PI/2, Math.PI/2)
+          .name("rotation z")
+          .step(0.01)
+          .onChange(function(value) {
+            if(!boxForClipping)
+              return;
+
+            boxForClipping.rotation.z = value;
+
+            updateClippingPlaneFromClippingBox();
+          });
+
+      }
+
+
+      // INIT
+			function init() {
+
+        // init the file opener
+        document.getElementById('myFile').addEventListener('change', handleFileSelect, false);
+
+        initDatGui();
+
+				scene = new THREE.Scene();
+
+        var axisHelper = new THREE.AxisHelper( 100 );
+        scene.add( axisHelper );
+
+				//scene.fog = new THREE.FogExp2( 0xcccccc, 0.002 );
+
+				renderer = new THREE.WebGLRenderer(/*{antialias: true}*/);
+				//renderer.setClearColor( scene.fog.color );
+        renderer.setClearColor( new THREE.Color().setRGB( 0.95, 0.95, 0.95 ) );
+
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+        renderer.localClippingEnabled = true;
+
+				var container = document.getElementById( 'container' );
+				container.appendChild( renderer.domElement );
+
+				camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 1, 1000 );
+				camera.position.z = 500;
+
+				controls = new THREE.OrbitControls( camera, renderer.domElement );
+				//controls.addEventListener( 'change', render ); // add this only if there is no animation loop (requestAnimationFrame)
+				controls.enableDamping = true;
+				controls.dampingFactor = 0.25;
+				controls.enableZoom = true;
+
+        // Object hierarchy
+        brainContainer = new THREE.Object3D();
+        mainContainer = new THREE.Object3D();
+        mainContainer.add(brainContainer);
+        scene.add(mainContainer);
+
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+        // clipping planes
+        /*
+        clipPlanes = [
+					new THREE.Plane( new THREE.Vector3( 1,  0,  0 ), 0 ),
+					new THREE.Plane( new THREE.Vector3( 0, -1,  0 ), 0 ),
+					new THREE.Plane( new THREE.Vector3( 0,  0, -1 ), 0 )
+				];
+        */
+
+        var distance = 140;
+
+        clipPlanes = [
+					new THREE.Plane( new THREE.Vector3( 1,  0,  0 ), distance ),
+          new THREE.Plane( new THREE.Vector3( -1,  0,  0 ), distance ),
+				  new THREE.Plane( new THREE.Vector3( 0, 1,  0 ), distance ),
+          new THREE.Plane( new THREE.Vector3( 0, -1,  0 ), distance ),
+				  new THREE.Plane( new THREE.Vector3( 0,  0, 1 ), distance ),
+				  new THREE.Plane( new THREE.Vector3( 0,  0, -1 ), distance )
+				];
+
+
+				//
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+
+      // ON RESIZE
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+
+      // ANIMATE
+			function animate() {
+				requestAnimationFrame( animate );
+				controls.update(); // required if controls.enableDamping = true, or if controls.autoRotate = true
+				stats.update();
+				render();
+			}
+
+
+      // RENDER
+			function render() {
+				renderer.render( scene, camera );
+        updateContainer();
+        updateCamera();
+			}
+
+
+      // update everything related to the main container
+      function updateContainer(){
+        mainContainer.position.x = guiVar.posx;
+        mainContainer.position.y = guiVar.posy;
+        mainContainer.position.z = guiVar.posz;
+        mainContainer.rotation.x = guiVar.rotx;
+        mainContainer.rotation.y = guiVar.roty;
+        mainContainer.rotation.z = guiVar.rotz;
+      }
+
+
+
+
+      // update everything related to the camera
+      function updateCamera(){
+        camera.zoom = guiVar.zoom;
+        camera.near = guiVar.near;
+        camera.updateProjectionMatrix();
+      }
+
+
+      function addParticles(buffer){
+        mincData = readMincBuffer(buffer);
+        console.log("loaded");
+
+        var header = mincData.getHeader();
+        var order = header.order;
+        var dimensionInfo = mincData.getDimensionInfo();
+
+        // maximum value in the dataset
+        var voxelMax = mincData.getVoxelMax();
+
+        var iMax = header[ order[0] ].space_length;
+        var jMax = header[ order[1] ].space_length;
+        var kMax = header[ order[2] ].space_length;
+
+        buildShellCube(iMax, jMax, kMax);
+        buildClippingCube(iMax, jMax, kMax);
+
+
+
+        // setting proper orientation
+        brainContainer.rotateX ( Math.PI );
+        brainContainer.translateY ( -jMax/2 );
+        brainContainer.translateX ( -iMax/2 );
+        brainContainer.translateZ ( -kMax/2 );
+
+        var particles = iMax * jMax * kMax;
+
+        var geometry = new THREE.BufferGeometry();
+				var positions = new Float32Array( particles * 3 );
+				var colors = new Float32Array( particles * 3 );
+				var color = new THREE.Color();
+
+        var counter = 0;
+        var iterator = 0;
+
+        var lowerThreshold = 0.1;
+        var higherThreshold = 1;
+
+        var colorLut = new THREE.Lut( "blackbody", 2048 );
+        colorLut.setMin( lowerThreshold );
+        colorLut.setMax( higherThreshold  * 0.9);
+
+        //var max = 0;
+
+        for(var i=0; i<iMax; i++){
+          for(var j=0; j<jMax; j++){
+            for(var k=0; k<kMax; k++){
+
+              let intensity = mincData.getIntensityValue(i, j, k, 0) / (voxelMax);
+
+              if(intensity < lowerThreshold || intensity > higherThreshold)
+                continue;
+
+              var color = colorLut.getColor( intensity );
+
+              // positions
+              positions[ iterator ]     = i;
+    					positions[ iterator + 1 ] = j;
+    					positions[ iterator + 2 ] = k;
+
+              // colors
+              colors[ iterator ]     = color.r;
+    					colors[ iterator + 1 ] = color.g;
+    					colors[ iterator + 2 ] = color.b;
+
+              counter ++;
+              iterator += 3;
+            }
+          }
+        }
+
+        geometry.addAttribute( 'position', new THREE.BufferAttribute( positions.subarray(0, iterator), 3 ) );
+				geometry.addAttribute( 'color', new THREE.BufferAttribute( colors.subarray(0, iterator), 3 ) );
+        geometry.computeBoundingSphere();
+
+				var material = new THREE.PointsMaterial( { size: 1., vertexColors: THREE.VertexColors, clippingPlanes: clipPlanes, clipIntersection: true } );
+
+				pointCloud = new THREE.Points( geometry, material );
+				brainContainer.add( pointCloud );
+
+    }
+
+    // builds the cube mesh to show the borders of the volume
+    function buildShellCube(xSize, ySize, zSize){
+      var expandRatio = 1.05;
+      var cubeGeometry = new THREE.BoxGeometry(
+        xSize * expandRatio,
+        ySize * expandRatio,
+        zSize * expandRatio
+      );
+
+      var cubeMaterial = new THREE.MeshBasicMaterial();
+      var cubeMesh = new THREE.Mesh( cubeGeometry, cubeMaterial );
+      var cube = new THREE.BoxHelper( cubeMesh );
+      cube.material.color.set( 0xff6666 );
+      mainContainer.add(cube);
+      //console.log(cubeGeometry);
+    }
+
+
+    // TODO: make it only for a single file (not i)
+    // Deals with opening the MIN file
+    function handleFileSelect(evt) {
+        var files = evt.target.files; // FileList object
+
+        // Loop through the FileList and render image files as thumbnails.
+        for (var i = 0, f; f = files[i]; i++) {
+            var reader = new FileReader();
+
+            reader.onloadend = function(event) {
+                var result = event.target.result;
+                addParticles(result);
+            }
+
+            reader.onerror = function() {
+                var error_message = "error reading file: " + filename;
+                BrainBrowser.events.triggerEvent("error", { message: error_message });
+                throw new Error(error_message);
+            };
+            reader.readAsArrayBuffer(files[i]);
+        }
+    }
+
+
+    function buildClippingCube(xSize, ySize, zSize){
+      var maxSize = Math.max(zSize, ySize, zSize) * 0.75;
+
+      var cubeGeometry = new THREE.BoxGeometry(
+        maxSize,
+        maxSize,
+        maxSize
+      );
+
+      var cubeMaterial = new THREE.MeshBasicMaterial({
+        color: 0x7E2FB4,
+        transparent: true,
+        opacity: 0.2
+      });
+
+      boxForClipping = new THREE.Mesh( cubeGeometry, cubeMaterial );
+
+
+      scene.add(boxForClipping);
+      console.log(boxForClipping);
+
+      updateClippingPlaneFromClippingBox();
+    }
+
+
+
+    function updateClippingPlaneFromClippingBox(){
+
+      var boxGeometry = boxForClipping.geometry;
+      boxGeometry.verticesNeedUpdate = true;
+      //boxGeometry.attributes.position.needsUpdate = true;
+      var boxVertices = boxGeometry.vertices;
+
+      clipPlanes.forEach(function(plane, index){
+
+        var cubeFace = boxGeometry.faces[ index * 2];
+
+        var va = boxVertices[ cubeFace.a ].clone();
+        var vb = boxVertices[ cubeFace.b ].clone();
+        var vc = boxVertices[ cubeFace.c ].clone();
+
+        boxForClipping.localToWorld( va );
+        boxForClipping.localToWorld( vb );
+        boxForClipping.localToWorld( vc );
+
+        plane.setFromCoplanarPoints(
+          /*
+          boxVertices[ cubeFace.a ],
+          boxVertices[ cubeFace.b ],
+          boxVertices[ cubeFace.c ]
+          */
+          /*
+          boxForClipping.localToWorld( boxVertices[ cubeFace.a ] ),
+          boxForClipping.localToWorld( boxVertices[ cubeFace.b ] ),
+          boxForClipping.localToWorld( boxVertices[ cubeFace.c ] )
+          */
+          va,
+          vb,
+          vc
+        )
+
+        //plane.constant *= -1;
+      });
+
+      //console.log(clipPlanes);
+      //console.log(boxVertices);
+    }
+
+
+    function revertPlanes(){
+      clipPlanes.forEach(function(plane){
+        plane.normal.negate();
+      });
+    }
+
+		</script>
+
+	</body>
+</html>
