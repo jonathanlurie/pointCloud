@@ -7,19 +7,19 @@
 		<style>
 
 			body {
-				color: #000;
+				color: #CCC;
 				font-family:Monospace;
 				font-size:13px;
 				text-align:center;
 				font-weight: bold;
 
-				background-color: #fff;
+				background-color: #333;
 				margin: 0px;
 				overflow: hidden;
 			}
 
 			#info {
-				color:#000;
+				color:#CCC;
 				position: absolute;
 				top: 0px; width: 100%;
 				padding: 5px;
@@ -27,7 +27,7 @@
 			}
 
 			a {
-				color: green;
+				color: #FAA;
         text-decoration: none;
 			}
 
@@ -42,17 +42,33 @@
                                   not supported by any browser */
       }
 
+      .logoCorner{
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 48px;
+        margin: 5px;
+      }
+      .logoCorner:hover{
+        filter: invert(100%);
+      }
+
 		</style>
 	</head>
 
 	<body>
+
 		<div id="container"></div>
 		<div id="info" class="">
       <span>pointCloud - <a href="https://github.com/jonathanlurie/pointCloud" target="_blank">see on Github</a></span>
-      <p>(Open space/tab separated 3D coordinates list)</p>
       <p id="loadInfo"></p>
-      <input type="file" id="myFile" style="display: none;">
+      <input type="file" id="pointListFileDialogBt" style="display: none;">
+      <input type="file" id="colorListFileDialogBt" style="display: none;">
 		</div>
+
+    <a href="https://github.com/jonathanlurie/pointCloud" target="_blank">
+      <img class="logoCorner" src="img/githubLogo.png"/>
+    </a>
 
     <!-- THREE stuff -->
 		<script src="js/three.js"></script>
@@ -69,6 +85,7 @@
     <script src="js/pako.js"></script>
 
 		<script>
+      printLoadInfo("Open a point or color list - they must be the same size");
 
 			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
 
@@ -78,6 +95,8 @@
 
       var mincData = null;
       var nonLinearPoints = [];
+      var nonLinearColor = [];
+      var colorExtrema = {min: Infinity, max: -Infinity};
 
       // will contain all the shapes
       var mainContainer;
@@ -88,6 +107,7 @@
       // variable managed by DAT.GUI
       var guiVar = null;
       var gui = new dat.GUI();
+      var guiControllers = {};
 
 			init();
 			animate();
@@ -99,22 +119,25 @@
         guiVar = {
 
 
-          debug: function(){
-              console.log("DEBUG");
+          githubLink: function(){
+              var win = window.open("https://github.com/jonathanlurie/pointCloud", '_blank');
+              win.focus();
           },
 
-          // just shortcut to load a minc file
-          loadFile: function(){
-            document.getElementById('myFile').click();
+          loadPointFile: function(){
+            document.getElementById('pointListFileDialogBt').click();
           },
 
-
+          loadColorFile: function(){
+            document.getElementById('colorListFileDialogBt').click();
+          },
 
         };
 
 
-        gui.add(guiVar, "loadFile");
-        gui.add(guiVar, "debug");
+        guiControllers["loadPointFile"] = gui.add(guiVar, "loadPointFile").name("Load point list");
+        guiControllers["loadColorFile"] = gui.add(guiVar, "loadColorFile").name("Load color list");
+        //guiControllers["githubLink"] =   gui.add(guiVar, "githubLink").name("See Github project");
 
       }
 
@@ -123,20 +146,16 @@
 			function init() {
 
         // init the file opener
-        document.getElementById('myFile').addEventListener('change', handleFileSelect, false);
+        document.getElementById('pointListFileDialogBt').addEventListener('change', handleFileSelectPointList, false);
+        document.getElementById('colorListFileDialogBt').addEventListener('change', handleFileSelectColorList, false);
 
         initDatGui();
 
 				scene = new THREE.Scene();
 
-        var axisHelper = new THREE.AxisHelper( 1 );
-        scene.add( axisHelper );
-
-				//scene.fog = new THREE.FogExp2( 0xcccccc, 0.002 );
-
 				renderer = new THREE.WebGLRenderer(/*{antialias: true}*/);
-				//renderer.setClearColor( scene.fog.color );
-        renderer.setClearColor( new THREE.Color().setRGB( 0.95, 0.95, 0.95 ) );
+        //renderer.setClearColor( new THREE.Color().setRGB( 0.95, 0.95, 0.95 ) );
+        renderer.setClearColor( new THREE.Color().setRGB( 0.2, 0.2, 0.2 ) );
 
 				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( window.innerWidth, window.innerHeight );
@@ -161,9 +180,6 @@
         // Object hierarchy
         mainContainer = new THREE.Object3D();
         scene.add(mainContainer);
-
-        //var axisHelper = new THREE.AxisHelper( 5 );
-        //scene.add(axisHelper);
 
 				stats = new Stats();
 				container.appendChild( stats.dom );
@@ -212,7 +228,13 @@
 				var colors = new Float32Array( nbParticles * 3 );
 				var color = new THREE.Color( 0xff0000 );
 
+        var colorLUT = new THREE.Lut( "rainbow", 512 );
+        colorLUT.setMin( colorExtrema.min );
+        colorLUT.setMax( colorExtrema.max );
+        var tempColor = null;
+
         var iterator = 0;
+
 
 
         for(var i=0; i<nbParticles; i++){
@@ -222,63 +244,49 @@
 					positions[ iterator + 1 ] = nonLinearPoints[i][1];
 					positions[ iterator + 2 ] = nonLinearPoints[i][2];
 
+          tempColor = colorLUT.getColor( nonLinearColor[i] );
+
           // colors
-          colors[ iterator ]     = 1; //color.r;
-					colors[ iterator + 1 ] = 0; //color.g;
-					colors[ iterator + 2 ] = 0; //color.b;
+          colors[ iterator ]     = tempColor.r;
+					colors[ iterator + 1 ] = tempColor.g;
+					colors[ iterator + 2 ] = tempColor.b;
 
           iterator += 3;
         }
 
-        console.log(nonLinearPoints);
-        console.log(positions);
-
         geometry.addAttribute( 'position', new THREE.BufferAttribute( positions.subarray(0, iterator), 3 ) );
 				geometry.addAttribute( 'color', new THREE.BufferAttribute( colors.subarray(0, iterator), 3 ) );
         geometry.computeBoundingSphere();
-        console.log(geometry);
+        geometry.computeBoundingBox();
+
 				var material = new THREE.PointsMaterial( { size: 0.01, vertexColors: THREE.VertexColors } );
 
 				pointCloud = new THREE.Points( geometry, material );
 				mainContainer.add( pointCloud );
 
-        camera.position.x = dataAvgPosition.x + geometry.boundingSphere.radius;
-        camera.position.y = dataAvgPosition.y + geometry.boundingSphere.radius;
-        camera.position.z = dataAvgPosition.z + geometry.boundingSphere.radius;
-        camera.updateProjectionMatrix();
-        //controls.reset();
+        var box = new THREE.BoxHelper( pointCloud, 0xff9999 );
+        mainContainer.add( box );
 
-        //camera.lookAt( dataAvgPosition.clone() );
+        var boxCenter = geometry.boundingBox.getCenter();
 
-        //controls.target = dataAvgPosition.clone();
-        controls.target.copy( dataAvgPosition );
-        //controls.reset();
+        camera.position.x = boxCenter.x + geometry.boundingSphere.radius;
+        camera.position.y = boxCenter.y + geometry.boundingSphere.radius;
+        camera.position.z = boxCenter.z + geometry.boundingSphere.radius;
+        controls.target.copy( geometry.boundingBox.getCenter() );
 
-
-        console.log(camera);
-        console.log(dataAvgPosition);
-
-        /*
-        var axisHelper = new THREE.AxisHelper( 5 );
-        axisHelper.position.x = dataAvgPosition.x;
-        axisHelper.position.y = dataAvgPosition.y;
-        axisHelper.position.z = dataAvgPosition.z;
-        scene.add( axisHelper );
-        */
-
-
-
-
+        printLoadInfo( nbParticles + " points displayed" );
     }
 
 
-    // TODO: make it only for a single file (not i)
-    // Deals with opening the MIN file
-    function handleFileSelect(evt) {
+
+    // Deals with opening the point listing file (csv)
+    function handleFileSelectPointList(evt) {
       var files = evt.target.files; // FileList object
 
       if(files.length == 0)
         return;
+
+      printLoadInfo("Parsing point list file...");
 
       var counter = 0;
 
@@ -288,14 +296,11 @@
       	worker: true,
 
       	step: function(results) {
-          if(results.data.length )
 
-      		//console.log("Row:", results);
-          //console.log(results.data);
-
-          // if no error && sone data
+          // if no error && some data
           if(!results.errors.length && results.data.length ){
 
+            // eachj point must be 3D
             if(results.data[0].length != 3)
               return;
 
@@ -323,7 +328,7 @@
           dataAvgPosition.y /= counter;
           dataAvgPosition.z /= counter;
 
-          addParticles();
+          tryAddParticles();
 	      }
 
       });
@@ -333,8 +338,110 @@
 
 
 
+
+    // Deals with opening the color listing file (csv)
+    function handleFileSelectColorList(evt) {
+      var files = evt.target.files; // FileList object
+
+      if(files.length == 0)
+        return;
+
+      printLoadInfo("Parsing color list file...");
+
+      var counter = 0;
+
+      // Stream big file in worker thread
+      Papa.parse(files[0], {
+        //delimiter: ' ',
+      	worker: true,
+
+      	step: function(results) {
+          //console.log(results);
+
+
+          // if some data
+          if(results.data.length ){
+
+            // eachj point must be 3D
+            if(results.data[0].length != 1)
+              return;
+
+            var parsedFloat = parseFloat(results.data[0][0] );
+
+            if(! isNaN(parsedFloat) ){
+              colorExtrema.min = Math.min(colorExtrema.min, parsedFloat);
+              colorExtrema.max = Math.max(colorExtrema.max, parsedFloat);
+              nonLinearColor.push( parsedFloat );
+            }
+
+            printLoadInfo( counter + " color parsed...");
+            counter++;
+          }
+      	},
+
+        complete: function(results) {
+          console.log("all " + nonLinearColor.length + " points parsed.");
+          console.log(nonLinearColor);
+          printLoadInfo( "" );
+
+          tryAddParticles();
+	      }
+
+      });
+
+
+    }
+
+
     function printLoadInfo( s ){
       document.getElementById("loadInfo").innerHTML = s;
+    }
+
+
+    // simple controller function
+    function tryAddParticles(){
+      var readyToLoad = true;
+      var message = "Building the point cloud...";
+
+      if( nonLinearColor.length ){
+        try{
+          guiControllers["loadColorFile"].remove();
+        }catch(e){
+
+        }
+      }else{
+        console.warn("Color list is not ready yet.");
+        readyToLoad = false;
+        message = "Now, load the color list";
+      }
+
+      if( nonLinearPoints.length ){
+        try{
+          guiControllers["loadPointFile"].remove();
+        }catch(e){
+
+        }
+      }else{
+        console.warn("Point list is not ready yet.");
+        readyToLoad = false;
+        message = "Now, load the point list";
+      }
+
+      if(nonLinearPoints.length && nonLinearColor.length && (nonLinearColor.length != nonLinearPoints.length) ){
+        message = "Color list and point list are not the same size, you should check that.";
+        console.warn(message);
+        alert(message);
+        readyToLoad = false;
+      }
+
+      printLoadInfo( message );
+
+      if( readyToLoad ){
+        addParticles();
+      }
+
+
+
     }
 
 
