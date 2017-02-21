@@ -1,7 +1,8 @@
- [[DEMO](https://jonathanlurie.github.io/pointCloud/)]  
-Display points.
+ [[DEMO](https://jonathanlurie.github.io/pointCloud/)] use the data in `testData`.  
 
-**Point file format:**  
+**pointCloud** is a web-based (100% browser side) point cloud plotter.
+
+**Point file format:** space separated, x, y, z floats  
 ```csv
 2.73129430362294 -64.04000000000001 6.81367322563185
 -15.65018331603530 -64.04000000000001 -5.42032669303416
@@ -23,7 +24,7 @@ Display points.
 -15.61825617508640 -64.04000000000001 -5.45731346072274
 ```
 
-**Color file format:** actually, color categories, a single value per point.  
+**Color file format:** actually, we use color categories, a single value per point. Then, the colors will be interpolated based on a *min max* rainbow color map. The values can be float or integer  
 ```csv
 0
 1.00005
