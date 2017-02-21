@@ -26,6 +26,13 @@
 
 			}
 
+      #infoFooter{
+        color:#CCC;
+				position: absolute;
+				bottom: 0px; width: 100%;
+				padding: 5px;
+      }
+
 			a {
 				color: #FAA;
         text-decoration: none;
@@ -65,6 +72,10 @@
       <input type="file" id="pointListFileDialogBt" style="display: none;">
       <input type="file" id="colorListFileDialogBt" style="display: none;">
 		</div>
+
+    <div id="infoFooter" class="">
+      Use SHIFT + clik on a point to set as camera target
+    </div>
 
     <a href="https://github.com/jonathanlurie/pointCloud" target="_blank">
       <img class="logoCorner" src="img/githubLogo.png"/>
@@ -109,6 +120,9 @@
       var gui = new dat.GUI();
       var guiControllers = {};
 
+      var raycaster = new THREE.Raycaster();
+      var mouse = new THREE.Vector2();
+
 			init();
 			animate();
 
@@ -118,10 +132,10 @@
 
         guiVar = {
 
-
-          githubLink: function(){
-              var win = window.open("https://github.com/jonathanlurie/pointCloud", '_blank');
-              win.focus();
+          screenshot: function(){
+              //var win = window.open("https://github.com/jonathanlurie/pointCloud", '_blank');
+              //win.focus();
+              saveAsImage();
           },
 
           loadPointFile: function(){
@@ -132,13 +146,29 @@
             document.getElementById('colorListFileDialogBt').click();
           },
 
-        };
+          pointSize: 0.01,
+          backgroundColor: [50, 50, 50]
 
+        };
 
         guiControllers["loadPointFile"] = gui.add(guiVar, "loadPointFile").name("Load point list");
         guiControllers["loadColorFile"] = gui.add(guiVar, "loadColorFile").name("Load color list");
-        //guiControllers["githubLink"] =   gui.add(guiVar, "githubLink").name("See Github project");
+        guiControllers["screenshot"] =   gui.add(guiVar, "screenshot").name("Take a screenshot");
+        guiControllers["backgroundColor"] = gui.addColor(guiVar, 'backgroundColor')
+          .name("Background")
+          .onChange(function(value){
+            setBackgroundColor(value);
+          })
 
+      }
+
+
+      /**
+      * Change the background color
+      * @param [Array] arrayRGB - must be [r, g, b] with r, g, and b in [0, 255]
+      */
+      function setBackgroundColor( arrayRGB ){
+        renderer.setClearColor( new THREE.Color().setRGB( arrayRGB[0]/256, arrayRGB[1]/256, arrayRGB[2]/256 ) );
       }
 
 
@@ -149,13 +179,21 @@
         document.getElementById('pointListFileDialogBt').addEventListener('change', handleFileSelectPointList, false);
         document.getElementById('colorListFileDialogBt').addEventListener('change', handleFileSelectColorList, false);
 
+        window.addEventListener( 'mousemove', onMouseMove, false );
+        window.addEventListener( 'mousedown', onMouseDown, true );
+
+
         initDatGui();
 
 				scene = new THREE.Scene();
 
-				renderer = new THREE.WebGLRenderer(/*{antialias: true}*/);
-        //renderer.setClearColor( new THREE.Color().setRGB( 0.95, 0.95, 0.95 ) );
-        renderer.setClearColor( new THREE.Color().setRGB( 0.2, 0.2, 0.2 ) );
+				renderer = new THREE.WebGLRenderer({
+          preserveDrawingBuffer: true
+          //antialias: true
+        });
+
+        setBackgroundColor( guiVar.backgroundColor );
+
 
 				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( window.innerWidth, window.innerHeight );
@@ -170,7 +208,7 @@
         controls.addEventListener( 'change', render );
 				//controls.addEventListener( 'change', render ); // add this only if there is no animation loop (requestAnimationFrame)
         controls.rotateSpeed = 10.0;
-				controls.zoomSpeed = 1.2;
+				controls.zoomSpeed = 3;
 				controls.panSpeed = 0.8;
 				controls.noZoom = false;
 				controls.noPan = false;
@@ -259,9 +297,9 @@
         geometry.computeBoundingSphere();
         geometry.computeBoundingBox();
 
-				var material = new THREE.PointsMaterial( { size: 0.01, vertexColors: THREE.VertexColors } );
+				var pointMaterial = new THREE.PointsMaterial( { size: 0.01, vertexColors: THREE.VertexColors } );
 
-				pointCloud = new THREE.Points( geometry, material );
+				pointCloud = new THREE.Points( geometry, pointMaterial );
 				mainContainer.add( pointCloud );
 
         var box = new THREE.BoxHelper( pointCloud, 0xff9999 );
@@ -275,6 +313,10 @@
         controls.target.copy( geometry.boundingBox.getCenter() );
 
         printLoadInfo( nbParticles + " points displayed" );
+
+
+
+        onDone();
     }
 
 
@@ -356,8 +398,6 @@
       	worker: true,
 
       	step: function(results) {
-          //console.log(results);
-
 
           // if some data
           if(results.data.length ){
@@ -381,7 +421,6 @@
 
         complete: function(results) {
           console.log("all " + nonLinearColor.length + " points parsed.");
-          console.log(nonLinearColor);
           printLoadInfo( "" );
 
           tryAddParticles();
@@ -444,6 +483,68 @@
 
     }
 
+
+    function onDone(){
+
+
+      guiControllers["pointSize"] = gui.add(guiVar, "pointSize", 0.001, 0.1).step(0.001).name("Point size");
+      guiControllers["pointSize"].onChange( function(value){
+        pointCloud.material.size = value;
+      });
+
+    }
+
+
+    function onMouseMove( event ) {
+    	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+    	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+
+
+    }
+
+
+    function onMouseDown( event ){
+
+      if(event.shiftKey){
+        raycaster.setFromCamera( mouse, camera );
+        var intersects = raycaster.intersectObject( pointCloud );
+
+        if(intersects.length){
+          controls.target.copy( intersects[0].point.clone() );
+        }
+      }
+    }
+
+
+    function saveAsImage() {
+        var imgData, imgNode;
+
+        try {
+            var strMime = "image/png";
+            imgData = renderer.domElement.toDataURL(strMime);
+
+            saveFile(imgData.replace(strMime, "image/octet-stream"), "screenshot.png");
+
+        } catch (e) {
+            console.log(e);
+            return;
+        }
+
+    }
+
+    function saveFile(strData, filename) {
+        var link = document.createElement('a');
+        if (typeof link.download === 'string') {
+            document.body.appendChild(link); //Firefox requires the link to be in the body
+            link.download = filename;
+            link.href = strData;
+            link.click();
+            document.body.removeChild(link); //remove the link when done
+        } else {
+            location.replace(uri);
+        }
+    }
 
 		</script>
 
