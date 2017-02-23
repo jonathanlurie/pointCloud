@@ -2,6 +2,8 @@
 
 **pointCloud** is a web-based (100% browser side) point cloud plotter.
 
+![](img/screenshot.png)
+
 **Point file format:** space separated, x, y, z floats  
 ```csv
 2.73129430362294 -64.04000000000001 6.81367322563185
@@ -22,28 +24,34 @@
 -15.65464960077280 -64.04000000000001 -5.45528394085953
 -15.61122140318850 -64.04000000000001 -5.45533008407816
 -15.61825617508640 -64.04000000000001 -5.45731346072274
+...
 ```
 
-**Color file format:** actually, we use color categories, a single value per point. Then, the colors will be interpolated based on a *min max* rainbow color map. The values can be float or integer  
+**Color file format:** space separated R G B, each being in [0, 255]
 ```csv
-0
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-0
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
-1.00005
+0 10 25
+0 10 25
+0 10 25
+0 10 25
+0 10 25
+0 10 25
+255 0 0
+255 0 0
+255 0 0
+255 0 0
+0 0 255
+0 0 255
+0 0 255
+0 0 255
+255 255 0
+255 255 0
+255 255 0
+...
 ```
 
 Color and point files must have the same number of line.
+
+**Other features:**  
+- change the size of the point (for the moment hardcoded in [0.001, 0.1])
+- change the background color
+- export a screenshot (where UI does not appear)
