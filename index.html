@@ -1,4 +1,12 @@
 <!DOCTYPE html>
+
+<!--
+  Author: Jonathan Lurie
+  Date: February 2017
+  Institution: Montreal Neurological Institute, MCIN lab
+  License: MIT
+-->
+
 <html lang="en">
 	<head>
 		<title>pointCloud</title>
@@ -110,6 +118,7 @@
       // will contain all the shapes
       var mainContainer;
       var pointCloud = null;
+      var box = null;
 
       // variable managed by DAT.GUI
       var guiVar = null;
@@ -145,7 +154,9 @@
           },
 
           pointSize: 0.01,
-          backgroundColor: lastBgColor
+          backgroundColor: lastBgColor,
+
+          boxVisible: true
         };
 
         guiControllers["loadPointFile"] = gui.add(guiVar, "loadPointFile").name("Load point list");
@@ -291,7 +302,7 @@
 				pointCloud = new THREE.Points( geometry, pointMaterial );
 				mainContainer.add( pointCloud );
 
-        var box = new THREE.BoxHelper( pointCloud, 0xff9999 );
+        box = new THREE.BoxHelper( pointCloud, 0xff9999 );
         mainContainer.add( box );
 
         var boxCenter = geometry.boundingBox.getCenter();
@@ -463,14 +474,22 @@
     }
 
 
+    /**
+    * Called when points are displayed
+    */
     function onDone(){
-
 
       guiControllers["pointSize"] = gui.add(guiVar, "pointSize", 0.001, 0.1).step(0.001).name("Point size");
       guiControllers["pointSize"].onChange( function(value){
         pointCloud.material.size = value;
         pointCloud.material.needsUpdate = true;
       });
+
+      guiControllers["boxVisible"] = gui.add(guiVar, 'boxVisible')
+        .name("Bounding box")
+        .onChange(function(value){
+          box.visible = value;
+        })
 
     }
 
